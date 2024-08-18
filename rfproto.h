@@ -780,7 +780,7 @@ struct RF_ItemCreatePacket
     struct RF_GamePacketHeader header; // RF_GPT_ITEM_CREATE
 #ifdef PSEUDOCODE
     char script_name[];                // Zero-terminated string
-    uint8_t team;                      // Always 0 (unused?)
+    uint8_t team;                      // Usually 0
     uint32_t item_type;                // Item type ID (entry number in items.tbl)
     int32_t respawn_time;              // Item respawn time in ms (-1 if item is temporary)
     uint32_t count;                    // $Count or $Count Multi from items.tbl (not value from RFL)
@@ -843,7 +843,6 @@ struct RF_WeaponFirePacket
     }
     if ((flags & RF_WFF_NO_POS_ROT) == 0) {
         struct RF_Vector pos;          // Position coordinate of weapon
-        // unsigned?
         int16_t direction_x;           // X coordinate of direction vector
         int16_t direction_y;           // Y coordinate of direction vector
         int16_t direction_z;           // Z coordinate of direction vector
@@ -859,7 +858,7 @@ struct RF_WeaponFirePacket
 struct RF_FallDamagePacket
 {
     struct RF_GamePacketHeader header; // RF_GPT_FALL_DAMAGE
-    float force;                       // Force?
+    float damage;
 };
 
 struct RF_SoundPacket
