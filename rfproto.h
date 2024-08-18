@@ -133,8 +133,8 @@ enum RF_ReliablePacketType
  */
 struct RF_ReliablePacketHeader
 {
-    uint8_t type;        // See RF_ReliablePacketType
-    uint8_t unknown;     // Unused (set to 0)
+    uint8_t type;       // See RF_ReliablePacketType
+    uint8_t unknown;    // Unused (set to 0)
     int16_t seq;        // Packet sequence number (first packet uses RF_CONNECT_SEQ)
     int16_t data_len;   // Length of data
     int32_t send_time;  // Milliseconds since client/server start
@@ -208,9 +208,9 @@ struct RF_JoinRequestPacket
         uint32_t motions_packfile_checksum;
         uint32_t motions_packfile_size;
     }
-    uint32_t tables_packfile_checksum;    // Checksum of tables.vpp, unknown algorithm, for 1.2 it's 7e 40 c2 1a
+    uint32_t tables_packfile_checksum;    // CRC-32 checksum of tables.vpp, for 1.2 it's 7e 40 c2 1a
     uint32_t tables_packfile_size;        // Size of tables.vpp
-    uint32_t mod_packfile_checksum;       // Checksum of mod VPP if exists (modname.vpp)
+    uint32_t mod_packfile_checksum;       // CRC-32 checksum of mod VPP if exists (modname.vpp)
     uint32_t mod_packfile_size;           // Size of mod VPP if exists (modname.vpp)
     /*struct RF_JoinEx joinEx;*/
 #else
@@ -239,21 +239,29 @@ enum RF_GameOptions
     RF_GO_BALANCE_TEAMS = 0x2000,
 };
 
-enum RF_PlayerFlags
+enum RF_NetPlayerFlags
 {
-    RF_PF_UNKNOWN   = 0x00000004,
-    RF_PF_BLUE_TEAM = 0x00000080,
+    RF_NPF_IS_HOST = 0x1,
+    RF_NPF_UNK_2 = 0x2,
+    RF_NPF_WAITING_FOR_REL_SOCKET = 0x4,
+    RF_NPF_CLIENT_IN_GAME = 0x8,
+    RF_NPF_PLAYER_NAMES_ON_HUD = 0x10,
+    RF_NPF_LIMBO = 0x20,
+    RF_NPF_UNK_40 = 0x40,
+    RF_NPF_BLUE_TEAM = 0x80,
+    RF_NPF_RCON_OWNER = 0x100,
 };
+
 
 struct RF_JoinAcceptRest
 {
     uint32_t level_checksum; // RFL file checksum - not a standard alghoritm
     uint32_t game_type;      // Game type (RF_GT_DM, RF_GT_TEAMDM, RF_GT_CTF)
-    uint32_t game_options;   // Bitfield (RF_GO_*)
+    uint32_t game_options;   // Bitfield (RF_GameOptions)
     float level_time;        // Time since level start
     float time_limit;        // Time limit
     uint8_t player_id;       // Player ID
-    uint32_t flags;          // Bitfield (RF_PF_*)
+    uint32_t flags;          // Bitfield (RF_NetPlayerFlags)
 };
 
 enum RF_JoinDenyReason
@@ -266,7 +274,7 @@ enum RF_JoinDenyReason
     RF_JDR_SERVER_ERROR          = 0x06,
     RF_JDR_DATA_DOESNT_MATCH     = 0x07,
     RF_JDR_UNSUPPOROTED_VERSION  = 0x08,
-    RF_JDR_UNKNOWN               = 0x09,
+    RF_JDR_UNKNOWN               = 0x09, // unused
     RF_JDR_BANNED                = 0x0A,
     // Note: reasons > 0x0A shows the same message as RF_JDR_UNKNOWN (tested in PF)
 };
@@ -283,7 +291,7 @@ struct RF_NewPlayerPacket
     uint8_t id;                        // Player ID
     uint32_t ip;                       // Player IP address
     uint16_t port;                     // Player port
-    uint32_t flags;                    // Bitfield (see RF_PlayerFlags)
+    uint32_t flags;                    // Bitfield (see RF_NetPlayerFlags)
     uint32_t rate;                     // Player connection speed in bytes per second. See RF_JoinRequestPacket
     char name[];                       // Player name
 };
@@ -299,7 +307,7 @@ struct RF_Player
     uint8_t end_marker; // always 0 (used to determine end of players data)
     uint8_t id;
 #ifdef PSEUDOCODE
-    uint32_t flags;    // Bitfield (see RF_PlayerFlags)
+    uint32_t flags;    // Bitfield (see RF_NetPlayerFlags)
     uint32_t ip;       // Player IP address
     uint16_t port;     // Player port
     char name[];       // Player name
@@ -401,24 +409,45 @@ struct RF_TeamChangePacket
     uint8_t team;                      // Team (see RF_TeamId)
 };
 
+
+enum RF_NetgameUpdatePacketFlags
+{
+    RF_NGU_NET_STATS = 0x01,
+    RF_NGU_SCORES = 0x02,
+    RF_NGU_LEVEL_TIME = 0x04,
+};
+
+#ifdef PSEUDOCODE
+
 struct RF_PlayerStats
 {
     uint8_t player_id; // Player ID
-    uint16_t ping;     // Player ping
-    uint8_t obj_update_packet_loss; // Value in range 0 - 255
-    int16_t score;     // Player score (points from kills and captures)
-    int16_t captures;  // Captured flags
+    if (flags & RF_NGU_NET_STATS)
+    {
+        uint16_t ping;     // Player ping
+        uint8_t obj_update_packet_loss; // Value in range 0 - 255
+    }
+    if (flags & RF_NGU_SCORES)
+    {
+        int16_t score;     // Player score (points from kills and captures)
+        int16_t captures;  // Captured flags
+    }
 };
+
+#endif
 
 struct RF_NetgameUpdatePacket
 {
     struct RF_GamePacketHeader header; // RF_GPT_NETGAME_UPDATE
-    uint8_t unknown;                   // 0x07
+    uint8_t flags;                     // RF always sends 0x07
     uint8_t num_players;               // Player count
 #ifdef PSEUDOCODE
     struct RF_PlayerStats players[];
-    float level_time;                  // Time since level start
-    float time_limit;                  // Level time limit
+    if (flags & RF_NGU_LEVEL_TIME)
+    {
+        float level_time;                  // Time since level start
+        float time_limit;                  // Level time limit
+    }
 #else
     char rest[];
 #endif
@@ -584,14 +613,14 @@ enum RF_Weapon
 
 enum RF_ObjectUpdateFlags
 {
-    RF_OUF_POS_ROT_ANIM = 0x01,
-    RF_OUF_UNKNOWN4     = 0x02, // Usually used with RF_ODF_POS_ROT
-    RF_OUF_WEAPON_TYPE  = 0x04,
-    RF_OUF_UNKNOWN3     = 0x08, // Usually used with RF_ODF_FIRE
-    RF_OUF_ALT_FIRE     = 0x10,
-    RF_OUF_HEATH_ARMOR  = 0x20,
-    RF_OUF_FIRE         = 0x40,
-    RF_OUF_AMP_FLAGS    = 0x80,
+    RF_OUF_POS_ROT_ANIM     = 0x01,
+    RF_OUF_PACKETS_RECVD    = 0x02, // Usually used with RF_ODF_POS_ROT
+    RF_OUF_WEAPON_TYPE      = 0x04,
+    RF_OUF_LAG_COMPENSATION = 0x08, // Usually used with RF_ODF_FIRE
+    RF_OUF_ALT_FIRE         = 0x10,
+    RF_OUF_HEATH_ARMOR      = 0x20,
+    RF_OUF_FIRE             = 0x40,
+    RF_OUF_POWERUPS         = 0x80,
 };
 
 // Animation first byte - needs more work
@@ -600,19 +629,20 @@ enum RF_ObjectUpdateFlags
 #define RF_OAF_RELOAD      0x10
 #define RF_OAF_FAST_RELOAD 0x20
 
-enum RF_EntityAmpFlags
+enum RF_EntityPowerup
 {
-    RF_EAF_DAMAGE_AMPLIFIER = 0x01,
-    RF_EAF_INVULNERABILITY  = 0x02,
+    RF_EPU_DAMAGE_AMPLIFIER = 0x01,
+    RF_EPU_INVULNERABILITY  = 0x02,
 };
 
 enum RF_EntityStateFlags
 {
-    RF_AF_HIDDEN_WEAPON = 0x01, // not used in multi
-    RF_AF_CROUCH        = 0x04,
-    RF_AF_ZOOM          = 0x08,
-    RF_AF_WEAPON_FIRE   = 0x10, // used only for remote charges and granades
-    RF_AF_WEAPON_FIRE2  = 0x20, // unknown
+    RF_ESF_HIDDEN_WEAPON = 0x01, // not used in multi
+    RF_ESF_WEAPON_CUSTOM_MODE = 0x02, // current weapon is in a custom mode
+    RF_ESF_CROUCH        = 0x04, // player is crouching
+    RF_ESF_ZOOM          = 0x08, // player is zooming in using a weapon scope
+    RF_ESF_FIRE_ANIM     = 0x10, // set only for remote charges, granades and flamethrower
+    RF_ESF_ALT_FIRE_ANIM = 0x20, // set only for remote charges, granades and flamethrower
 };
 
 struct RF_ObjectUpdate
@@ -631,8 +661,8 @@ struct RF_ObjectUpdate
         int8_t move_speed;    // Speed, MSB is sign of move_dir_z
         // Note: you can calculate move_dir_z from move_dir_x, move_dir_y and move_speed
     }
-    if (flags & RF_OUF_AMP_FLAGS) {
-        uint8_t amp_flags;    // Bitfield (RF_EntityAmpFlags)
+    if (flags & RF_OUF_POWERUPS) {
+        uint8_t powerups;    // Bitfield (RF_EntityAmpFlags)
     }
     if (flags & RF_OUF_WEAPON_TYPE) {
         uint8_t weapon;       // Weapon type
@@ -640,14 +670,13 @@ struct RF_ObjectUpdate
     if (flags & RF_OUF_HEATH_ARMOR) {
         uint8_t health;       // Entity health points
         uint8_t armor;        // Entity armor
-        uint8_t unknown2;     // Ie. 00
+        uint8_t damage_dir;   // Ie. 00
     }
-    if (flags & RF_OUF_UNKNOWN3) {
-        uint8_t unknown3;     // Ie. 00
-        uint8_t _unknown3[unknown3*3];
+    if (flags & RF_OUF_LAG_COMPENSATION) {
+        RF_LagCompensationData lag_compensation_data;
     }
-    if (flags & RF_OUF_UNKNOWN4) {
-        uint16_t unknown4;    // Ie. 00 00
+    if (flags & RF_OUF_PACKETS_RECVD) {
+        uint16_t obj_update_packets_recvd; // Ie. 00 00
     }
 
 #else
@@ -668,27 +697,41 @@ struct RF_ObjectUpdatePacket
 
 enum RF_ObjectKillFlags
 {
-    RF_OKF_ITEM_UNKNOWN = 0x01, // Note: it's usually not used by game
-    RF_OKF_ITEM         = 0x02, // Creates item in place of death
+    RF_OKF_DROPPED_ITEM   = 0x01, // Not used in multi
+    RF_OKF_DROPPED_WEAPON = 0x02, // Creates weapon item in place of death
 };
+
+#ifdef PSEUDOCODE
+
+struct RF_DroppedItem
+{
+    char name[];                 // Zero-terminated string, always ""
+    uint8_t team_id;             // Item team ID
+    uint32_t item_type;          // Index of item class
+    int32_t respawn_time;        // Item respawn time in ms, usually -1 (no respawn)
+    int count;                   // Item count property
+    uint32_t handle;             // Item handle
+    struct RF_Vector pos;        // Item position
+    struct RF_Matrix rot_matrix; // Rotation matrix
+};
+
+#endif
 
 struct RF_ObjectKillPacket
 {
     struct RF_GamePacketHeader header; // RF_GPT_OBJECT_KILL
     uint32_t entity_handle;            // Entity handle
-    float unknown;                     // Ie. 0xC47A0000 (life?)
+    float killed_life;                 // Should be lower or equal 0
     uint8_t id_killer;                 // Player ID of killer
     uint8_t id_killed;                 // Player ID of killed player, probably 0xFF if entity is not player
     uint16_t animation;                // For suicide - 0x5, headshot - 0x9
     uint8_t flags;                     // Bitfield (RF_ObjectKillFlags)
 #ifdef PSEUDOCODE
-    if (flags & (RF_OKF_ITEM | RF_OKF_ITEM_UNKNOWN)) {
-        uint16_t unknown2;             // Ie. 0x0000,  (its char unknown2[]; char unknown3;)
-        uint32_t item_type;            // Type of item in place of killed player, Note: it must not be weapon
-        char unknown4[8];              // Ie. FF FF FF FF 80 00 00 00,
-        uint32_t item_handle;          // Item handle,
-        struct RF_Vector item_pos;     // X coordinate of item,
-        struct RF_Matrix rot_matrix;   // Rotation matrix,
+    if (flags & (RF_OKF_DROPPED_ITEM)) {
+        struct RF_DroppedItem dropped_item;
+    }
+    if (flags & (RF_OKF_DROPPED_WEAPON)) {
+        struct RF_DroppedItem dropped_weapon;
     }
 #else
     char rest[];
@@ -739,11 +782,11 @@ struct RF_ItemCreatePacket
     char script_name[];                // Zero-terminated string
     uint8_t team;                      // Always 0 (unused?)
     uint32_t item_type;                // Item type ID (entry number in items.tbl)
-    uint32_t respawn_time;             // Item respawn time in ms (0xFFFFFFFF if item is temporary)
+    int32_t respawn_time;              // Item respawn time in ms (-1 if item is temporary)
     uint32_t count;                    // $Count or $Count Multi from items.tbl (not value from RFL)
     uint32_t item_handle;              // Item object ID
-    uint16_t item_bit;                 // Item index in RF_ItemUpdatePacket, 0xFFFF if item is temporary (created after death)
-    uint8_t unknown2;                  // 0x75 - enabled, 0x68 - not enabled
+    int16_t item_bit;                  // Item index in RF_ItemUpdatePacket, -1 if item is temporary (created after death)
+    uint8_t flags;                     // 0x75 - visible, 0x68 - hidden
     struct RF_Vector pos;
     struct RF_Matrix rot_matrix;
 #else
@@ -768,10 +811,26 @@ struct RF_ReloadRequestPacket
 
 enum RF_WeaponFireFlags
 {
-    RF_WFF_ALT_FIRE   = 0x01,
-    RF_WFF_UNKNOWN    = 0x02,
-    RF_WFF_NO_POS_ROT = 0x04,
+    RF_WFF_ALT_FIRE         = 0x01,
+    RF_WFF_LAG_COMPENSATION = 0x02,
+    RF_WFF_NO_POS_ROT       = 0x04,
 };
+
+#ifdef PSEUDOCODE
+
+struct RF_LagCompensationPlayer
+{
+    uint8_t player_id;
+    uint16_t interp_time; // current interpolation time
+};
+
+struct RF_LagCompensationData
+{
+    uint8_t num_players;
+    struct RF_LagCompensationPlayer players[num_players];
+};
+
+#endif
 
 struct RF_WeaponFirePacket
 {
@@ -789,8 +848,8 @@ struct RF_WeaponFirePacket
         int16_t direction_y;           // Y coordinate of direction vector
         int16_t direction_z;           // Z coordinate of direction vector
     }
-    if (flags & RF_WFF_UNKNOWN) {
-        uint8_t unknown;
+    if (flags & RF_WFF_LAG_COMPENSATION) {
+        struct RF_LagCompensationData lag_compensation_data;
     }
 #else
     char rest[];
@@ -866,6 +925,7 @@ union RF_Packet
 
 enum RF_TrackerPacketType
 {
+    RF_TPT_PING_REQ            = 0x00,
     RF_TPT_REPLY               = 0x01,
     RF_TPT_SERVER_STOPPED      = 0x03,
     RF_TPT_SERVER_PING         = 0x04,
@@ -888,9 +948,9 @@ struct RF_TrackerServerAddress
     uint16_t port;
 };
 
-struct RF_TrackerServerList
+struct RF_TrackerServerListPacket
 {
-    uint8_t unknown; // 0x06
+    uint8_t unknown; // always 6
     uint16_t type;   // RF_TPT_SERVER_LIST
     uint32_t seq;
     uint16_t packet_len;
@@ -899,21 +959,13 @@ struct RF_TrackerServerList
     struct RF_TrackerServerAddress servers[];
 };
 
-struct RF_TrackerUnknown
+struct RF_TrackerBasicPacket
 {
-    uint8_t unknown; // 0x06
-    uint16_t type;   // RF_TPT_SERVER_LIST
-    uint32_t seq;
+    uint8_t unknown; // always 6
+    uint16_t type;   // RF_TrackerPacketType
+    uint32_t seq;    // RF sents 0 here
     uint16_t packet_len;
-    uint8_t unknown2;
-};
-
-union RF_TrackerPacket
-{
-    struct RF_TrackerHeader header;
-    struct RF_TrackerServerList server_list;
-    struct RF_TrackerUnknown server_ping;
-    struct RF_TrackerUnknown server_stop;
+    uint8_t unknown2; // unused in most packets
 };
 
 #pragma pack(pop)
