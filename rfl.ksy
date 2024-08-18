@@ -2184,8 +2184,8 @@ enums:
     2: cosine
     3: sqrt
   light_state:
-    1: off
-    2: on
+    1: 'off'
+    2: 'on'
     3: off_alternating
     4: on_alternating
   entity_ai_mode:
