@@ -21,7 +21,7 @@ types:
       - id: magic
         contents: [0x55, 0xDA, 0xBA, 0xD4]
       - id: version
-        doc: 0xC8 is the last supported version in RF 1.2, standard PC levels use version 0xB4, PS2 levels use versions 0xAE and 0xAF
+        doc: 0xC8 is the last supported version in RF 1.2, standard PC levels use version 0xB4, PS2 levels use versions 0xAE and 0xAF, Alpine Faction levels use versions 0x12C and 0x12D
         type: s4
       - id: timestamp
         type: u4
@@ -736,7 +736,7 @@ types:
         type: uid_list
       - id: rot
         type: mat3
-        if: (_root.header.version >= 0x91 and (class_name.str == "Teleport" or class_name.str == "Play_Vclip" or class_name.str == "Teleport_Player")) or (_root.header.version >= 0x98 and class_name.str == "Alarm")
+        if: (_root.header.version >= 0x91 and (class_name.str == "Teleport" or class_name.str == "Play_Vclip" or class_name.str == "Teleport_Player")) or (_root.header.version >= 0x98 and class_name.str == "Alarm") or (_root.header.version >= 0x12C and (class_name.str == "AF_Teleport_Player" or class_name.str == "Clone_Entity")) or (_root.header.version >= 0x12D and class_name.str == "Anchor_Marker_Orient")
       - id: color
         type: color
         if: _root.header.version >= 0xB0
