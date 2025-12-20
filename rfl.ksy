@@ -21,7 +21,7 @@ types:
       - id: magic
         contents: [0x55, 0xDA, 0xBA, 0xD4]
       - id: version
-        doc: 0xC8 is the last supported version in RF 1.2; official Volition PC levels use version 0xB4; PS2 levels use versions 0xAE and 0xAF; community-made levels with stock RED use version 0xC8; Alpine Faction levels use versions 0x12C, 0x12D and 0x12E
+        doc: 0xC8 is the last supported version in RF 1.2; official Volition PC levels use version 0xB4; PS2 levels use versions 0xAE and 0xAF; community-made levels with stock RED use version 0xC8; Alpine Faction levels use versions 0x12C, 0x12D and 0x12E; RF2 levels use version 0x127
         type: s4
       - id: timestamp
         type: u4
@@ -41,7 +41,8 @@ types:
         type: vstring
       - id: mod_name
         type: vstring
-        if: version >= 0xB2
+        if: version >= 0xB2 and version != 0x127
+        doc: mod name is not stored in RF2 RFLs (version 0x127)
   section:
     seq:
       - id: type
