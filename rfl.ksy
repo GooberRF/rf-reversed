@@ -21,7 +21,7 @@ types:
       - id: magic
         contents: [0x55, 0xDA, 0xBA, 0xD4]
       - id: version
-        doc: 0xC8 is the last supported version in RF 1.2, standard PC levels use version 0xB4, PS2 levels use versions 0xAE and 0xAF, Alpine Faction levels use versions 0x12C and 0x12D
+        doc: 0xC8 is the last supported version in RF 1.2; official Volition PC levels use version 0xB4; PS2 levels use versions 0xAE and 0xAF; community-made levels with stock RED use version 0xC8; Alpine Faction levels use versions 0x12C, 0x12D and 0x12E
         type: s4
       - id: timestamp
         type: u4
@@ -62,6 +62,8 @@ types:
             'section_type::events': events_section
             'section_type::mp_respawn_points': mp_respawn_points_section
             'section_type::level_properties': level_properties_section
+            'section_type::alpine_level_properties': alpine_level_properties_section
+            'section_type::dash_level_properties': dash_level_properties_section
             'section_type::particle_emitters': particle_emitters_section
             'section_type::gas_regions': gas_regions_section
             'section_type::room_effects': room_effects_section
@@ -788,6 +790,34 @@ types:
         type: f4
       - id: fog_far_plane
         type: f4
+  # Alpine Faction Properties
+  alpine_level_properties_section:
+    seq:
+      - id: version
+        type: u4
+      - id: legacy_cyclic_timers
+        type: u1
+        if: version >= 1
+      - id: legacy_movers
+        type: u1
+        if: version >= 2
+      - id: starts_with_headlamp
+        type: u1
+        if: version >= 2
+      - id: override_static_mesh_ambient_light_modifier
+        type: u1
+        if: version >= 3
+      - id: static_mesh_ambient_light_modifier
+        type: f4
+        if: version >= 3
+  # Dash Faction Properties
+  dash_level_properties_section:
+    seq:
+      - id: version
+        type: u4
+      - id: lightmaps_full_depth
+        type: u1
+        if: version == 1
   # Particle Emitters
   particle_emitters_section:
     seq:
@@ -2139,6 +2169,8 @@ enums:
     0x00000700: mp_respawn_points
     0x00000800: unknown_800
     0x00000900: level_properties
+    0x0afba5ed: alpine_level_properties
+    0xda58fa00: dash_level_properties
     0x00000a00: particle_emitters
     0x00000b00: gas_regions
     0x00000c00: room_effects
