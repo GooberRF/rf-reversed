@@ -362,18 +362,18 @@ types:
         repeat-expr: num_textures
       - id: num_face_scroll_data
         type: s4
-        if: _root.header.version > 0xB4
+        if: _root.header.version >= 0xB4
       - id: face_scroll_data
         type: face_scroll_data
         repeat: expr
         repeat-expr: num_face_scroll_data
-        if: _root.header.version > 0xB4
+        if: _root.header.version >= 0xB4
       - id: unknown2
         type: s4
-        if: _root.header.version <= 0xB4
+        if: _root.header.version < 0xB4
       - id: unknown3
         size: unknown2 * 0x29
-        if: _root.header.version <= 0xB4
+        if: _root.header.version < 0xB4
       - id: num_rooms
         type: s4
         doc: only compiled geometry
