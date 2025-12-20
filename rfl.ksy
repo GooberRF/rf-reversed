@@ -1,10 +1,11 @@
 # RFL format reverse engineered by:
 # * Rafal Harabien (Open Faction project)
 # * wardd64 (Unity Faction project)
+# * Chris "Goober" Parsons (Alpine Faction and REDUX projects)
 meta:
   id: rfl
   title: Red Faction Level
-  application: Red Faction
+  application: Red Faction and Red Faction II (partial support)
   file-extension: rfl
   license: GPL-3.0-or-later
   endian: le
