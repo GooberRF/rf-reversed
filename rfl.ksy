@@ -5,7 +5,9 @@
 meta:
   id: rfl
   title: Red Faction Level
-  application: Red Faction and Red Faction II (partial support)
+  application:
+    - Red Faction
+    - Red Faction II (partial support)
   file-extension: rfl
   license: GPL-3.0-or-later
   endian: le
@@ -45,6 +47,9 @@ types:
         if: version >= 0xB2 and version != 0x127
         doc: mod name is not stored in RF2 RFLs (version 0x127)
   section:
+    doc: |
+      Each section has a type tag and length-prefixed body. RF2 RFLs end with
+      a section_type::end (0x0) marker; RF1 RFLs do not have this terminator.
     seq:
       - id: type
         type: s4
@@ -66,6 +71,8 @@ types:
             'section_type::level_properties': level_properties_section
             'section_type::alpine_level_properties': alpine_level_properties_section
             'section_type::dash_level_properties': dash_level_properties_section
+            'section_type::alpine_mesh_objects': alpine_mesh_objects_section
+            'section_type::alpine_corona_objects': alpine_corona_objects_section
             'section_type::particle_emitters': particle_emitters_section
             'section_type::gas_regions': gas_regions_section
             'section_type::room_effects': room_effects_section
@@ -97,6 +104,10 @@ types:
             'section_type::brushes': brushes_section
             'section_type::groups': groups_section
             'section_type::editor_only_lights': lights_section
+            # RF2-only sections
+            'section_type::rf2_coronas': rf2_coronas_section
+            'section_type::rf2_lightmap_vertex_colors': rf2_lightmap_vertex_colors_section
+            'section_type::rf2_fast_geometry_flag': rf2_fast_geometry_flag_section
   vstring:
     doc: variable-length string
     seq:
@@ -292,6 +303,71 @@ types:
         type: vertex
         repeat: expr
         repeat-expr: num_vertices
+  rf2_face:
+    doc: |
+      RF2 face format. Shares the same plane+texture+surface+faceId prefix as RF1, but diverges after
+    seq:
+      - id: plane
+        type: plane
+      - id: texture
+        type: s4
+        doc: index in geometry::textures array
+      - id: surface_index
+        type: s4
+      - id: face_id
+        type: s4
+      - id: unknown12
+        type: s4
+        doc: unknown field present in RF2 face header
+      - id: flags
+        type: u4
+        doc: |
+          32-bit face flags. Known bits:
+          0x01 = show_sky/portal, 0x02 = mirrored, 0x04 = liquid_surface,
+          0x08 = is_detail, 0x10 = scroll_texture (RF2 uses 0x8000 for inline scroll),
+          0x20 = full_bright, 0x40 = has_alpha, 0x80 = has_holes,
+          0x2000 = is_invisible, 0x8000 = has inline scroll data.
+      - id: smoothing_groups
+        type: u4
+      - id: scroll_u
+        type: f4
+        if: (flags & 0x8000) != 0
+        doc: inline scroll U velocity; raw value divided by 2 gives actual speed
+      - id: scroll_v
+        type: f4
+        if: (flags & 0x8000) != 0
+        doc: inline scroll V velocity; raw value divided by 2 gives actual speed
+      - id: rf2_extra_bytes
+        size: 3
+        if: _root.header.version >= 0x127
+        doc: 3 unknown bytes present in version >= 0x127
+      - id: rf2_flag_decider
+        type: f4
+        if: _root.header.version >= 0x127
+        doc: if non-zero, sets flag 0x4000000 in the face flags
+      - id: room_index
+        type: s4
+      - id: num_vertices
+        type: s4
+      - id: vertices
+        type: rf2_vertex
+        repeat: expr
+        repeat-expr: num_vertices
+  rf2_vertex:
+    doc: |
+      RF2 per-face vertex. Uses uint32 index (vs int32 in RF1), includes
+      inline RGBA vertex color, and has no lightmap UV coordinates
+      (RF2 uses per-vertex baked colors in chunk 0x7900 instead of lightmap UVs).
+    seq:
+      - id: index
+        type: u4
+        doc: index in geometry::vertices (uint32, RF1 uses int32)
+      - id: texture_coords
+        type: uv
+        doc: texture UV coordinates
+      - id: vertex_color
+        type: color
+        doc: inline per-vertex RGBA color (not present in RF1 vertices)
   face_flags:
     doc: 16 bit long bitfield
     seq:
@@ -574,6 +650,11 @@ types:
         repeat: expr
         repeat-expr: num_lights
   light:
+    doc: |
+      Point/spot/tube light. Format is shared between RF1 and RF2, but attenuation
+      differs: RF1 uses linear (1 - d/range), RF2 uses inverse-square (1/(1+(d/r)^2)).
+      For RF2->RF1 conversion, multiply range by 3 to approximate equivalent falloff.
+      RF2 also stores corona objects (chunk 0x7678) as additional light sources.
     seq:
       - id: uid
         type: s4
@@ -792,6 +873,41 @@ types:
         type: f4
       - id: fog_far_plane
         type: f4
+      - id: rf2_sun_color
+        type: color
+        if: _root.header.version == 0x127
+        doc: RED2 baking sun color (not used at runtime)
+      - id: rf2_sun_yaw
+        type: f4
+        if: _root.header.version == 0x127
+        doc: sun direction yaw in degrees (RED2 baking parameter)
+      - id: rf2_sun_pitch
+        type: f4
+        if: _root.header.version == 0x127
+        doc: sun direction pitch in degrees (RED2 baking parameter)
+      - id: rf2_sun_intensity
+        type: f4
+        if: _root.header.version == 0x127
+        doc: sun intensity 0.0-1.0 (RED2 baking parameter)
+      - id: rf2_sun_spread_angle
+        type: f4
+        if: _root.header.version == 0x127
+        doc: sun spread angle, typically ~89.9 degrees (RED2 baking parameter)
+      - id: rf2_hardlight_color
+        type: color
+        if: _root.header.version == 0x127
+        doc: |
+          fullscreen subtractive color overlay. Runtime rendering output = framebuffer - (RGB * intensity/128).
+      - id: rf2_hardlight_intensity
+        type: s4
+        if: _root.header.version == 0x127
+        doc: hardlight blend intensity
+      - id: rf2_lightmap_multiplier
+        type: f4
+        if: _root.header.version == 0x127
+        doc: |
+          scales all baked vertex colors. Range 0.4-2.5 in practice, 1.0 = default.
+          Applied by RED2 during baking. Used at runtime to scale vertex buffer ARGB values.
   # Alpine Faction Properties
   alpine_level_properties_section:
     seq:
@@ -812,6 +928,50 @@ types:
       - id: static_mesh_ambient_light_modifier
         type: f4
         if: version >= 3
+      - id: rf2_style_geomod
+        type: u1
+        if: version >= 4
+      - id: num_geoable_entries
+        type: u4
+        if: version >= 4
+      - id: geoable_entries
+        type: alpine_geoable_entry
+        repeat: expr
+        repeat-expr: num_geoable_entries
+        if: version >= 4
+      - id: num_breakable_entries
+        type: u4
+        if: version >= 4
+      - id: breakable_entries
+        type: alpine_breakable_entry
+        repeat: expr
+        repeat-expr: num_breakable_entries
+        if: version >= 4
+      - id: num_hold_open_keyframe_uids
+        type: u4
+        if: version >= 4
+      - id: hold_open_keyframe_uids
+        type: s4
+        repeat: expr
+        repeat-expr: num_hold_open_keyframe_uids
+        if: version >= 4
+  alpine_geoable_entry:
+    doc: geoable brush entry - brush_uid is editor-only, room_uid used by the game
+    seq:
+      - id: brush_uid
+        type: s4
+      - id: room_uid
+        type: s4
+  alpine_breakable_entry:
+    doc: breakable brush entry - brush_uid is editor-only, room_uid and material used by the game
+    seq:
+      - id: brush_uid
+        type: s4
+      - id: room_uid
+        type: s4
+      - id: material
+        type: u1
+        doc: bits 0-6 are material index, bit 7 is no_debris flag
   # Dash Faction Properties
   dash_level_properties_section:
     seq:
@@ -820,6 +980,127 @@ types:
       - id: lightmaps_full_depth
         type: u1
         if: version == 1
+  # Alpine Mesh Objects
+  alpine_mesh_objects_section:
+    seq:
+      - id: num_meshes
+        type: u4
+      - id: meshes
+        type: alpine_mesh_object
+        repeat: expr
+        repeat-expr: num_meshes
+  alpine_mesh_object:
+    seq:
+      - id: uid
+        type: s4
+      - id: pos
+        type: vec3
+      - id: orient
+        type: mat3
+      - id: script_name
+        type: vstring
+      - id: mesh_filename
+        type: vstring
+      - id: state_anim
+        type: vstring
+      - id: collision_mode
+        type: u1
+        doc: 0=None, 1=Only Weapons, 2=All
+      - id: num_texture_overrides
+        type: u1
+      - id: texture_overrides
+        type: alpine_mesh_texture_override
+        repeat: expr
+        repeat-expr: num_texture_overrides
+      - id: material
+        type: s4
+        doc: material type for impact sounds (0-9)
+      - id: is_clutter
+        type: u1
+      - id: clutter
+        type: alpine_mesh_clutter_info
+        if: is_clutter != 0
+  alpine_mesh_texture_override:
+    seq:
+      - id: slot_id
+        type: u1
+      - id: filename
+        type: vstring
+  alpine_mesh_clutter_info:
+    seq:
+      - id: life
+        type: f4
+      - id: debris_filename
+        type: vstring
+      - id: explosion_vclip
+        type: vstring
+      - id: explosion_radius
+        type: f4
+      - id: debris_velocity
+        type: f4
+      - id: damage_type_factors
+        type: f4
+        repeat: expr
+        repeat-expr: 11
+        doc: damage multipliers for each of the 11 damage types
+      - id: corpse_filename
+        type: vstring
+      - id: corpse_state_anim
+        type: vstring
+      - id: corpse_collision
+        type: u1
+        doc: 0=None, 1=Only Weapons, 2=All
+      - id: corpse_material
+        type: s1
+        doc: -1=Automatic (inherit from base), 0-9=specific material
+  # Alpine Corona Objects
+  alpine_corona_objects_section:
+    seq:
+      - id: num_coronas
+        type: u4
+      - id: coronas
+        type: alpine_corona_object
+        repeat: expr
+        repeat-expr: num_coronas
+  alpine_corona_object:
+    seq:
+      - id: uid
+        type: s4
+      - id: pos
+        type: vec3
+      - id: orient
+        type: mat3
+      - id: script_name
+        type: vstring
+      - id: color_r
+        type: u1
+      - id: color_g
+        type: u1
+      - id: color_b
+        type: u1
+      - id: color_a
+        type: u1
+      - id: corona_bitmap
+        type: vstring
+      - id: cone_angle
+        type: f4
+        doc: degrees (multiplied by 0.5)
+      - id: intensity
+        type: f4
+      - id: radius_distance
+        type: f4
+      - id: radius_scale
+        type: f4
+      - id: diminish_distance
+        type: f4
+      - id: volumetric_bitmap
+        type: vstring
+      - id: volumetric_height
+        type: f4
+        if: volumetric_bitmap.len != 0
+      - id: volumetric_length
+        type: f4
+        if: volumetric_bitmap.len != 0
   # Particle Emitters
   particle_emitters_section:
     seq:
@@ -2159,6 +2440,250 @@ types:
         type: b24
         doc: value & 0xFFFFFF00
 
+  # RF2 Coronas / Glares
+  # In RED2 lightmap baking, coronas function as light sources.
+  rf2_coronas_section:
+    seq:
+      - id: num_coronas
+        type: s4
+      - id: coronas
+        type: rf2_corona
+        repeat: expr
+        repeat-expr: num_coronas
+  rf2_corona:
+    doc: |
+      Corona/glare object. In RED2, coronas contribute to baked vertex lighting
+      using inverse-square attenuation: 1/(1+(d/r)^2). Narrow-cone coronas
+      (ConeAngle < 60 degrees) act as spotlights; wider ones as point lights.
+    seq:
+      - id: uid
+        type: s4
+      - id: name
+        type: vstring
+      - id: pos
+        type: vec3
+      - id: rot
+        type: rf2_mat3
+        doc: stream order is row3, row1, row2 (i.e. right, forward, up). Row1 (forward) is the cone/spotlight direction.
+      - id: script_name
+        type: vstring
+      - id: version_gate_bool_0
+        type: u1
+        doc: version-gated bool (v>=0)
+      - id: color
+        type: color
+        doc: RGBA color, actual light tint
+      - id: version_gate_bool_103
+        type: u1
+        doc: version-gated bool (v>=0x103)
+      - id: version_gate_bool_120
+        type: u1
+        doc: version-gated bool (v>=0x120)
+      - id: version_gate_bool_121
+        type: u1
+        doc: version-gated bool (v>=0x121)
+      - id: version_gate_bool_124
+        type: u1
+        doc: version-gated bool (v>=0x124)
+      - id: version_gate_bool_e8
+        type: u1
+        doc: version-gated bool (v>=0xe8)
+      - id: corona_bitmap
+        type: vstring
+        doc: sprite texture for the visual corona effect
+      - id: cone_angle
+        type: f4
+        doc: |
+          full cone angle in degrees. RF2 stores the full cone angle;
+          genuine spotlights use <=44 deg, visual/omni >=70 deg.
+      - id: intensity
+        type: f4
+        doc: 0.0-1.0; scales light contribution in RED2 baking
+      - id: radius_distance
+        type: f4
+        doc: visual corona sprite parameter, NOT used for baked light range
+      - id: radius_scale
+        type: f4
+        doc: visual corona sprite parameter
+      - id: diminish_distance
+        type: f4
+        doc: visual corona sprite parameter (often 0 or negative in practice)
+      - id: volumetric_bitmap
+        type: vstring
+        doc: volumetric light shaft texture (empty if none)
+      - id: volumetric_height
+        type: f4
+        if: volumetric_bitmap.len > 0
+      - id: volumetric_length
+        type: f4
+        if: volumetric_bitmap.len > 0
+      - id: volumetric_unknown
+        type: f4
+        if: volumetric_bitmap.len > 0
+      - id: trailing_bytes
+        size: 5
+        doc: 5 unknown trailing bytes
+  rf2_mat3:
+    doc: Stream order: row3, row1, row2 (right, forward, up).
+    seq:
+      - id: right
+        type: vec3
+        doc: stream row3 - right vector
+      - id: forward
+        type: vec3
+        doc: stream row1 - forward vector (cone/spotlight direction)
+      - id: up
+        type: vec3
+        doc: stream row2 - up vector
+
+  # RF2 Lightmap Vertex Colors (0x7900)
+  # Baked per-vertex lighting data produced by RED2 editor.
+  rf2_lightmap_vertex_colors_section:
+    doc: |
+      RF2 baked lighting stored as per-vertex RGB colors (not bitmap lightmaps).
+      RED2 bakes ambient * 0.2 + inverse-square light contributions into these.
+    seq:
+      - id: version
+        type: s4
+        doc: must be 5
+      - id: num_texture_names
+        type: s4
+      - id: num_face_groups
+        type: s4
+      - id: texture_names
+        type: strz
+        encoding: ASCII
+        repeat: expr
+        repeat-expr: num_texture_names
+        doc: null-terminated texture name strings
+      - id: num_light_probes
+        type: s4
+      - id: light_probes
+        type: rf2_light_probe
+        repeat: expr
+        repeat-expr: num_light_probes
+      - id: face_group_lightmap_ids
+        type: s4
+        repeat: expr
+        repeat-expr: num_face_groups
+        doc: lightmap ID per face group (read before face group data)
+      - id: face_groups
+        type: rf2_lightmap_face_group
+        repeat: expr
+        repeat-expr: num_face_groups
+  rf2_light_probe:
+    seq:
+      - id: value_a
+        type: f4
+      - id: value_b
+        type: f4
+  rf2_lightmap_face_group:
+    seq:
+      - id: num_entries
+        type: s4
+      - id: entries
+        type: rf2_lightmap_entry
+        repeat: expr
+        repeat-expr: num_entries
+  rf2_lightmap_entry:
+    seq:
+      - id: face_vertex_count
+        type: s4
+        doc: number of vertices in the source polygon
+      - id: triangle_vertex_count
+        type: s4
+        doc: number of triangulated triangle entries
+      - id: texture_index
+        type: s4
+        doc: index into the section's texture_names table
+      - id: unknown1
+        type: s4
+      - id: unknown2
+        type: s4
+      - id: vertex_positions
+        type: vec3
+        repeat: expr
+        repeat-expr: face_vertex_count
+      - id: aabb
+        type: aabb
+        doc: axis-aligned bounding box (min/max), discarded at runtime
+      - id: triangle_vertices
+        type: rf2_lightmap_triangle
+        repeat: expr
+        repeat-expr: triangle_vertex_count
+  rf2_lightmap_triangle:
+    doc: |
+      Per-triangle baked lighting data. 9 color ints are per-vertex RGB in
+      vertex-major order: V0_R, V0_G, V0_B, V1_R, V1_G, V1_B, V2_R, V2_G, V2_B.
+      6 UV floats are interleaved: u0, v0, u1, v1, u2, v2.
+      NOT directional basis sets.
+    seq:
+      - id: index0
+        type: s4
+        doc: vertex index into entry's vertex_positions
+      - id: index1
+        type: s4
+      - id: index2
+        type: s4
+      - id: v0_r
+        type: s4
+        doc: vertex 0 red channel (0-255, may exceed range in file)
+      - id: v0_g
+        type: s4
+        doc: vertex 0 green channel
+      - id: v0_b
+        type: s4
+        doc: vertex 0 blue channel
+      - id: v1_r
+        type: s4
+        doc: vertex 1 red channel
+      - id: v1_g
+        type: s4
+        doc: vertex 1 green channel
+      - id: v1_b
+        type: s4
+        doc: vertex 1 blue channel
+      - id: v2_r
+        type: s4
+        doc: vertex 2 red channel
+      - id: v2_g
+        type: s4
+        doc: vertex 2 green channel
+      - id: v2_b
+        type: s4
+        doc: vertex 2 blue channel
+      - id: u0
+        type: f4
+        doc: vertex 0 U texture coordinate
+      - id: v0
+        type: f4
+        doc: vertex 0 V texture coordinate
+      - id: u1
+        type: f4
+        doc: vertex 1 U coordinate
+      - id: v1
+        type: f4
+        doc: vertex 1 V coordinate
+      - id: u2
+        type: f4
+        doc: vertex 2 U coordinate
+      - id: v2
+        type: f4
+        doc: vertex 2 V coordinate
+      - id: alpha
+        type: s4
+        doc: alpha value (0-255)
+      - id: trailing_vec3
+        type: vec3
+        doc: 3 trailing floats, purpose unknown, discarded
+
+  # RF2 Fast Geometry Validation Flag (0x7901)
+  rf2_fast_geometry_flag_section:
+    doc: 1-byte flag; must be 0 for rf2.exe to accept the geometry
+    seq:
+      - id: flag
+        type: u1
+
 enums:
   section_type:
     0x00000000: end
@@ -2172,6 +2697,8 @@ enums:
     0x00000800: unknown_800
     0x00000900: level_properties
     0x0afba5ed: alpine_level_properties
+    0x0afbae01: alpine_mesh_objects
+    0x0afbae03: alpine_corona_objects
     0xda58fa00: dash_level_properties
     0x00000a00: particle_emitters
     0x00000b00: gas_regions
@@ -2193,6 +2720,16 @@ enums:
     0x00007003: v3d_files
     0x00007004: vfx_files
     0x00008000: eax_effects
+    0x00007005: rf2_sound_files
+    0x00007677: rf2_particle_emitters
+    0x00007678: rf2_coronas
+    0x00007679: rf2_random_item_spawners
+    0x00007680: rf2_climbing_push_regions
+    0x00007681: rf2_clutter
+    0x00007777: rf2_keyframed_movers
+    0x00007779: rf2_lightmap_geometry
+    0x00007900: rf2_lightmap_vertex_colors
+    0x00007901: rf2_fast_geometry_flag
     0x00010000: waypoint_lists
     0x00020000: nav_points
     0x00030000: entities
